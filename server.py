@@ -1,5 +1,11 @@
 #  coding: utf-8 
 import socketserver
+import os
+import mimetypes
+from wsgiref.handlers import format_date_time
+from datetime import datetime
+from time import mktime
+
 
 # Copyright 2013 Abram Hindle, Eddie Antonio Santos
 # 
@@ -30,9 +36,67 @@ import socketserver
 class MyWebServer(socketserver.BaseRequestHandler):
     
     def handle(self):
+        message_200= "HTTP/1.1 200 OK"
+        message_404 = "HTTP/1.1 404 Not Found!" 
+        message_405 = "HTTP/1.1 405 Method Not Allowed" 
+        message_301 = "HTTP/1.1 301 Moved Permanently" 
+
+
         self.data = self.request.recv(1024).strip()
         print ("Got a request of: %s\n" % self.data)
-        self.request.sendall(bytearray("OK",'utf-8'))
+        method, path, *rest = self.data.decode('utf-8').split(" ")
+        
+
+        absolute_path = f"./www{path}"
+    
+        if method != 'GET':
+            httpResponse = self.format_response(message_405)
+
+        elif os.path.isdir(absolute_path) and not path.endswith('/'):
+            httpResponse = self.format_response(message_301, location = f"{path}/")
+
+        elif not(os.path.realpath(f"./www{path}").startswith(os.path.realpath("./www"))):
+            print(os.path.realpath(f"./www{path}"))
+            httpResponse = self.format_response(message_404)
+
+        elif not os.path.exists(absolute_path):
+            print("404 Not Found")
+            httpResponse = self.format_response(message_404)
+        else:
+            if os.path.isdir(absolute_path):
+                absolute_path += 'index.html'
+            file = open(absolute_path, 'r')
+            size = os.path.getsize(absolute_path)
+            lines = file.read()
+            file.close()
+            content={
+                'content' : lines,
+                'length' : os.path.getsize(absolute_path),
+                'type' : mimetypes.guess_type(absolute_path, strict = True)[0]
+            }
+            httpResponse = self.format_response(message_200, content = content)
+        self.request.sendall(bytearray(httpResponse,'utf-8'))
+
+    def format_response(self, message, content = None, location = None):
+
+        response = f"{message}\r\n"
+
+        dateTime_now = datetime.now()
+        timeStamp = mktime(dateTime_now.timetuple())
+
+        response += f"Date: {format_date_time(timeStamp)}\r\n"
+        response += f"Connection: Closed\r\n"
+        # response += f"Server: Apache/2.2.14 (Win32)\r\n"
+
+        if not location == None :
+            response += f"Location: {location}\r\n"
+        if not content == None :
+            response += f"Content-Type: {content['type']}\r\n"
+            response += f"Content-Length: {content['length']}\r\n"
+            response += f"\r\n{content['content']}"
+
+        
+        return response
 
 if __name__ == "__main__":
     HOST, PORT = "localhost", 8080
